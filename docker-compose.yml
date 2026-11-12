@@ -7,5 +7,6 @@ services:
     env_file:
       - .env
     volumes:
-      - ./workflow_checkpoint.db:/app/workflow_checkpoint.db
+      - ./data:/app/data
     restart: unless-stopped
+    
