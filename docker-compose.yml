@@ -1,0 +1,11 @@
+services:
+  code-review-agent:
+    build: .
+    container_name: code-review-agent
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./workflow_checkpoint.db:/app/workflow_checkpoint.db
+    restart: unless-stopped
