@@ -123,7 +123,7 @@ def fetch_github_pr(
 
 @tool
 def run_linter_tool(code_string: str) -> str:
-    """Check Python syntax and run Flake8 on source code."""
+    """Validate Python syntax and run Flake8, Black and Pylint."""
 
     if not code_string.strip():
         return "Lint error: Empty Python source code."
@@ -136,14 +136,10 @@ def run_linter_tool(code_string: str) -> str:
             f"{error.msg}"
         )
 
-    flake8_path = shutil.which("flake8")
-
-    if not flake8_path:
-        return "Lint execution error: Flake8 is not installed."
-
     temp_path = None
 
     try:
+        # Create a temporary Python file.
         with tempfile.NamedTemporaryFile(
             mode="w",
             suffix=".py",
@@ -153,23 +149,53 @@ def run_linter_tool(code_string: str) -> str:
             temp.write(code_string)
             temp_path = temp.name
 
-        result = subprocess.run(
-            [sys.executable, "-m", "flake8", temp_path],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False
-        )
+        # Run all three validation tools.
+        commands = {
+            "Flake8": [
+                sys.executable, "-m", "flake8", temp_path
+            ],
+            "Black": [
+                sys.executable, "-m", "black",
+                "--check", "--diff", temp_path
+            ],
+            "Pylint": [
+                sys.executable, "-m", "pylint",
+                "--score=n",
+                "--reports=n",
+                "--disable=C0114,C0116",
+                temp_path
+            ]
+        }
 
-        output = (result.stdout + result.stderr).strip()
+        results = []
 
-        if result.returncode == 0 and not output:
-            return "No lint errors found."
+        for tool_name, command in commands.items():
 
-        return output or f"Flake8 exited with code {result.returncode}."
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False
+            )
+
+            output = (
+                result.stdout + result.stderr
+            ).strip()
+
+            if result.returncode != 0:
+                results.append(
+                    f"{tool_name} findings:\n"
+                    f"{output or 'Validation failed.'}"
+                )
+
+        if results:
+            return "\n\n".join(results)
+
+        return "No lint errors found."
 
     except subprocess.TimeoutExpired:
-        return "Lint execution error: Flake8 timed out."
+        return "Lint execution error: Validation timed out."
 
     except OSError as error:
         return f"Lint execution error: {error}"
@@ -177,8 +203,6 @@ def run_linter_tool(code_string: str) -> str:
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
-
-
 def commit_to_github(
     repo_full_name: str,
     branch: str,

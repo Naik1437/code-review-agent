@@ -324,3 +324,39 @@ The following scenarios were successfully executed during project testing:
 ## Author
 
 Developed as a practical project demonstrating autonomous AI agents, LangGraph orchestration, LLM integration, GitHub API automation, FastAPI development and Human-in-the-Loop workflows.
+
+
+ ## Code Quality and Validation
+
+The agent uses three Python code analysis tools inside a temporary-file execution environment:
+
+- **Flake8:** Detects Python style and linting issues.
+- **Black:** Checks Python code formatting.
+- **Pylint:** Identifies code quality issues.
+
+Python AST validation is also performed to detect syntax errors.
+
+## Automated Testing
+
+The project includes 13 automated tests using pytest.
+
+Run tests:
+
+```bash
+pytest -v
+```
+
+Latest verified result: **13 tests passed**.
+
+## Docker Deployment
+
+Build and start the application:
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+Open Swagger documentation:
+
+`http://localhost:8000/docs`

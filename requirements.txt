@@ -9,3 +9,5 @@ python-dotenv
 flake8
 langgraph-checkpoint-sqlite
 pytest
+black
+pylint

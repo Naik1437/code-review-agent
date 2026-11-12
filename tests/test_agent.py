@@ -177,3 +177,63 @@ def test_validate_refactored_code_failure():
 
     with pytest.raises(ValueError, match="failed validation"):
         validate_refactor_node(state)
+
+
+
+
+
+
+# ============================================================
+# 5. BLACK AND PYLINT INTEGRATION TESTS
+# ============================================================
+
+def test_black_detects_formatting_errors():
+    """Black should detect incorrectly formatted Python code."""
+
+    bad_code = "x=  10\nprint(x)\n"
+
+    result = run_linter_tool.invoke({
+        "code_string": bad_code
+    })
+
+    assert "Black findings" in result
+
+
+def test_pylint_detects_code_quality_issues():
+    """Pylint should detect code-quality problems."""
+
+    bad_code = "x= 10\nprint(x)\n"
+
+    result = run_linter_tool.invoke({
+        "code_string": bad_code
+    })
+
+    assert "Pylint findings" in result
+
+
+def test_all_linters_accept_clean_code():
+    """All three tools should accept clean Python code."""
+
+    good_code = (
+        "def add(a: int, b: int) -> int:\n"
+        "    return a + b\n"
+    )
+
+    result = run_linter_tool.invoke({
+        "code_string": good_code
+    })
+
+    assert result == "No lint errors found."
+
+
+def test_temporary_file_is_cleaned_up():
+    """Temporary Python files should be deleted after linting."""
+
+    from unittest.mock import patch
+
+    with patch("app.tools.os.remove") as mock_remove:
+        run_linter_tool.invoke({
+            "code_string": "def add(a, b):\n    return a + b\n"
+        })
+
+        mock_remove.assert_called_once()
