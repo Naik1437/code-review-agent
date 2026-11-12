@@ -1,21 +1,22 @@
 # Autonomous Code Review & Refactoring Agent with LangGraph
 
-An AI-powered autonomous code review and refactoring system built using Python, LangGraph, FastAPI, and GitHub API integration.
+An AI-powered autonomous code review and refactoring system built using Python, LangGraph, FastAPI, Groq LLM and GitHub REST API integration.
 
-The application automatically fetches Python files from GitHub Pull Requests, performs lint analysis, generates AI-based refactoring suggestions, validates the proposed changes, and pauses for Human-in-the-Loop (HITL) approval before committing changes to GitHub.
+The application automatically fetches Python files from GitHub Pull Requests, performs syntax and lint analysis, generates AI-powered refactoring suggestions, validates the proposed changes, and pauses for Human-in-the-Loop (HITL) approval before committing approved changes to GitHub.
 
-## Features
+## Key Features
 
-- **LangGraph Stateful Workflow:** Orchestrates the code review lifecycle through fetch, lint, refactor, validation, and apply nodes.
-- **GitHub API Integration:** Fetches Pull Request details and modified Python files.
-- **Custom Linter Tool:** Uses Flake8 to detect Python syntax and style issues.
-- **AI-Powered Refactoring:** Uses an LLM to generate improved code suggestions.
-- **Human-in-the-Loop Approval:** Requires human approval before applying changes.
-- **Reviewer Feedback:** Supports rejection and refactoring based on reviewer feedback.
-- **Persistent Checkpointing:** Uses SQLite to preserve workflow state.
-- **FastAPI REST API:** Provides webhook and review approval endpoints.
-- **Docker Support:** Includes Dockerfile and Docker Compose for containerized deployment.
-- **Automated Testing:** Uses pytest to validate linter behavior and approval routing.
+- **Autonomous Agent Workflow:** Uses LangGraph to coordinate multiple code review and refactoring stages.
+- **GitHub Integration:** Fetches Pull Request details and modified Python files using GitHub REST APIs.
+- **Automated Code Analysis:** Uses AST parsing and Flake8 to identify syntax and style issues.
+- **AI-Powered Refactoring:** Uses Groq LLM to generate improved Python code while preserving original functionality.
+- **Human-in-the-Loop Approval:** Pauses execution before committing changes.
+- **Reviewer Feedback Loop:** Rejected proposals are sent back to the AI refactoring stage with reviewer feedback.
+- **Persistent State Management:** Uses SQLite checkpointing to preserve workflow state.
+- **Automated Validation:** Rechecks AI-generated code before presenting it for approval.
+- **FastAPI REST API:** Provides webhook and approval endpoints.
+- **Docker Deployment:** Supports containerized execution using Docker Compose.
+- **Automated Testing:** Includes pytest tests for linting, refactoring and workflow routing.
 
 ## Technology Stack
 
@@ -23,16 +24,18 @@ The application automatically fetches Python files from GitHub Pull Requests, pe
 |---|---|
 | Programming Language | Python 3.11 |
 | Agent Framework | LangGraph |
-| LLM Integration | LangChain OpenAI |
-| Backend API | FastAPI |
+| LLM Integration | Groq API |
+| LLM Client | LangChain OpenAI-compatible client |
+| Backend Framework | FastAPI |
 | GitHub Integration | GitHub REST API |
-| Code Analysis | Flake8 |
+| Syntax Validation | Python AST |
+| Code Linting | Flake8 |
 | State Persistence | SQLite |
-| Testing | Pytest |
+| Testing Framework | Pytest |
 | Containerization | Docker |
 | API Documentation | OpenAPI / Swagger UI |
 
-## Project Structure
+## Project Architecture
 
 ```text
 code-review-agent/
@@ -47,6 +50,9 @@ code-review-agent/
 ├── tests/
 │   └── test_agent.py
 │
+├── data/
+│   └── workflow_checkpoint.db
+│
 ├── .env.example
 ├── .gitignore
 ├── Dockerfile
@@ -57,28 +63,70 @@ code-review-agent/
 └── conftest.py
 ```
 
+The SQLite database is generated automatically when the application starts.
+
 ## System Workflow
 
-1. **Fetch Pull Request:** Retrieves Pull Request information and modified Python files from GitHub.
-2. **Lint Analysis:** Runs Flake8 to identify syntax and code-style issues.
-3. **AI Refactoring:** Generates improved code suggestions using the configured language model.
-4. **Refactor Validation:** Checks the generated code using the linter.
-5. **Human Approval:** Pauses execution before applying changes.
-6. **Feedback Loop:** If rejected, reviewer feedback is passed back to the refactoring stage.
-7. **Apply Changes:** If approved, the agent commits the refactored files to GitHub.
+The application follows a stateful agent workflow implemented using LangGraph.
+
+1. **Fetch Pull Request:** Retrieves Pull Request details and modified Python files from GitHub.
+2. **Lint Analysis:** Executes Python syntax checks and Flake8 analysis.
+3. **AI Refactoring:** Sends the original code and lint findings to the Groq LLM.
+4. **Refactor Validation:** Validates the generated code using the linter.
+5. **Human Approval:** Interrupts execution before applying changes.
+6. **Feedback Processing:** If rejected, reviewer feedback is passed back to the refactoring node.
+7. **Reapproval:** Generates and validates another proposal before pausing again.
+8. **Apply Changes:** If approved, commits the refactored files to the GitHub source branch.
+
+### Workflow Architecture
+
+```text
+       GitHub Pull Request
+                |
+                v
+         Fetch PR Node
+                |
+                v
+          Lint Code Node
+                |
+                v
+       AI Refactoring Node
+                |
+                v
+       Validate Code Node
+                |
+                v
+       Human Approval Gate
+                |
+          +-----+-----+
+          |           |
+       Reject       Approve
+          |           |
+          v           v
+      Feedback     Apply Changes
+          |           |
+          v           v
+      Refactor     GitHub Commit
+          |
+          v
+      Validate
+          |
+          v
+   Approval Gate
+```
 
 ## Installation and Local Setup
 
 ### 1. Clone the Repository
 
 ```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
+git clone https://github.com/Naik1437/code-review-agent.git
 cd code-review-agent
 ```
 
 ### 2. Create a Virtual Environment
 
-Windows:
+Windows PowerShell:
 
 ```powershell
 python -m venv venv
@@ -87,24 +135,27 @@ venv\Scripts\activate
 
 ### 3. Install Dependencies
 
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
 ### 4. Configure Environment Variables
 
-Create a `.env` file in the project root.
+Create a `.env` file in the project root using `.env.example` as a reference.
 
 ```env
 GITHUB_TOKEN=your_github_token
-OPENAI_API_KEY=your_openai_api_key
+GROQ_API_KEY=your_groq_api_key
+OPENAI_API_KEY=
 ```
 
-Configure a GitHub token with the required repository permissions for reading Pull Requests and writing repository contents.
+**GitHub Token:** Configure repository permissions for reading Pull Requests and reading/writing repository contents.
 
-A valid OpenAI API key with API access and available billing or credits is required for the configured AI refactoring stage.
+**Groq API Key:** Configure a valid Groq API key for AI-powered refactoring.
 
-**Security:** Never commit `.env` or expose API keys publicly.
+The project uses Groq's OpenAI-compatible API endpoint through the LangChain client.
+
+Never commit `.env` or expose API keys publicly.
 
 ### 5. Start the Application
 
@@ -112,7 +163,7 @@ A valid OpenAI API key with API access and available billing or credits is requi
 uvicorn app.main:app --reload
 ```
 
-The API will be available at:
+The application runs at:
 
 ```text
 http://localhost:8000
@@ -124,29 +175,39 @@ http://localhost:8000
 
 **POST** `/api/webhooks/github`
 
-Receives GitHub Pull Request information and starts the review workflow.
-
-### 2. Review Approval
-
-**POST** `/api/reviews/{thread_id}/approve`
-
-Accepts reviewer approval or rejection and optional feedback.
+Receives GitHub Pull Request information and starts the autonomous review workflow.
 
 Example request:
 
 ```json
 {
-  "approved": false,
-  "feedback": "Please improve the code readability."
+  "repo_name": "Naik1437/code-review-agent",
+  "pull_number": 1,
+  "branch": "test-review"
 }
 ```
 
-For approval:
+### 2. Human Approval / Rejection
+
+**POST** `/api/reviews/{thread_id}/approve`
+
+Accepts human approval or rejection and optional reviewer feedback.
+
+Example rejection request:
+
+```json
+{
+  "approved": false,
+  "feedback": "Please improve code readability and add proper type hints."
+}
+```
+
+Example approval request:
 
 ```json
 {
   "approved": true,
-  "feedback": null
+  "feedback": "Approved. The refactored code meets the requirements."
 }
 ```
 
@@ -154,37 +215,31 @@ For approval:
 
 FastAPI automatically generates interactive API documentation.
 
-Swagger UI:
+**Swagger UI:**
 
 ```text
 http://localhost:8000/docs
 ```
 
-OpenAPI specification:
+**OpenAPI JSON:**
 
 ```text
 http://localhost:8000/openapi.json
 ```
 
-The exported specification is available in `openapi.json`.
+The exported API specification is available in `openapi.json`.
 
 ## Docker Deployment
 
 Make sure Docker Desktop is installed and running.
 
-### Build the Docker Image
+### Build and Start
 
 ```powershell
-docker compose build
+docker compose up -d --build
 ```
 
-### Start the Container
-
-```powershell
-docker compose up -d
-```
-
-### Check Running Containers
+### Check Container Status
 
 ```powershell
 docker compose ps
@@ -202,37 +257,70 @@ docker compose logs -f
 docker compose down
 ```
 
-After starting the container, access:
+The application is accessible at:
 
 ```text
 http://localhost:8000/docs
 ```
 
-## Running Tests
+The Docker Compose configuration mounts the local `data` directory for persistent SQLite checkpoint storage.
 
-Execute the automated test suite:
+## Automated Testing
+
+Run the test suite:
 
 ```powershell
 pytest -v
 ```
 
-The current test suite covers:
+The current test suite contains 9 tests covering:
 
-- Python syntax error detection.
-- Flake8 style error detection.
-- Acceptance of clean Python code.
-- Rejection routing to the refactoring stage.
-- Approval routing to workflow completion.
+| Test Category | Description |
+|---|---|
+| Syntax Detection | Detects invalid Python syntax |
+| Style Validation | Identifies Flake8 formatting issues |
+| Clean Code Validation | Accepts properly formatted Python code |
+| Rejection Routing | Verifies rejection routing decisions |
+| Approval Routing | Verifies approval routing decisions |
+| AI Refactoring | Checks generated code formatting |
+| Empty Response Handling | Rejects empty AI responses |
+| Successful Validation | Accepts valid refactored code |
+| Failed Validation | Rejects invalid refactored code |
 
-## Future Improvements
+**Latest test result: 9 passed.**
+
+## Demonstrated Workflow Scenarios
+
+The following scenarios were successfully executed during project testing:
+
+**Scenario 1: Pull Request Review**
+- Submitted a GitHub PR review request.
+- Retrieved modified Python files.
+- Executed lint analysis.
+- Generated AI refactoring.
+- Paused at the human approval gate.
+
+**Scenario 2: Human Rejection**
+- Rejected the initial proposal.
+- Submitted reviewer feedback.
+- Regenerated the refactored code.
+- Paused for reapproval.
+
+**Scenario 3: Human Approval**
+- Approved the generated proposal.
+- Applied the changes.
+- Successfully committed the updated Python file to the GitHub source branch.
+
+## Future Enhancements
 
 - GitHub webhook signature verification.
 - Support for additional programming languages.
-- Improved retry and error-handling mechanisms.
-- More comprehensive integration and API tests.
-- Enhanced code security and sandbox isolation.
+- Enhanced retry and error-handling mechanisms.
+- Full integration testing of checkpoint recovery and workflow routing.
+- Improved sandbox isolation and resource limits.
 - Support for additional LLM providers.
+- More advanced code quality and security analysis.
 
 ## Author
 
-Developed as a practical project demonstrating autonomous AI agents, LangGraph orchestration, GitHub API integration, FastAPI development, and Human-in-the-Loop workflows.
+Developed as a practical project demonstrating autonomous AI agents, LangGraph orchestration, LLM integration, GitHub API automation, FastAPI development and Human-in-the-Loop workflows.
