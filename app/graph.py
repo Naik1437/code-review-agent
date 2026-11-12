@@ -1,17 +1,22 @@
 import sqlite3
+from pathlib import Path
 from typing import Any, List, Optional, TypedDict
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_openai import ChatOpenAI
 
+from app.config import GROQ_API_KEY
 from app.tools import (
     run_linter_tool,
     fetch_github_pr_files,
     commit_to_github,
 )
-from app.config import OPENAI_API_KEY
 
+
+# ============================================================
+# 1. REVIEW STATE
+# ============================================================
 
 class ReviewState(TypedDict):
     pr_url: str
@@ -28,28 +33,44 @@ class ReviewState(TypedDict):
     refactored_files: List[dict[str, str]]
 
 
-# Configure the AI model.
+# ============================================================
+# 2. GROQ LLM CONFIGURATION
+# ============================================================
+
 llm = (
     ChatOpenAI(
-        model="gpt-4o-mini",
+        model="openai/gpt-oss-20b",
         temperature=0,
-        api_key=OPENAI_API_KEY,
+        api_key=GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1",
     )
-    if OPENAI_API_KEY
+    if GROQ_API_KEY
     else None
 )
 
 
-def fetch_pr_node(state: ReviewState):
-    """Fetch all changed Python files from the GitHub pull request."""
+# ============================================================
+# 3. FETCH PULL REQUEST NODE
+# ============================================================
 
-    if not state.get("repo_name") or not state.get("pull_number"):
-        raise ValueError("Repository name and pull request number are required.")
+def fetch_pr_node(state: ReviewState):
+    """Fetch modified Python files from GitHub."""
+
+    repo_name = state.get("repo_name")
+    pull_number = state.get("pull_number")
+
+    if not repo_name or not pull_number:
+        raise ValueError(
+            "Repository name and pull request number are required."
+        )
 
     files = fetch_github_pr_files(
-        state["repo_name"],
-        state["pull_number"],
+        repo_name,
+        pull_number,
     )
+
+    if not files:
+        raise ValueError("No Python files found in the pull request.")
 
     code_contents = "\n\n".join(
         f"# FILE: {item['filename']}\n{item['content']}"
@@ -67,12 +88,17 @@ def fetch_pr_node(state: ReviewState):
     }
 
 
+# ============================================================
+# 4. LINT CODE NODE
+# ============================================================
+
 def lint_code_node(state: ReviewState):
-    """Run Flake8 on every fetched Python file."""
+    """Execute Flake8 checks on fetched Python files."""
 
     results = []
 
     for item in state.get("files", []):
+
         result = run_linter_tool.invoke({
             "code_string": item["content"]
         })
@@ -86,41 +112,55 @@ def lint_code_node(state: ReviewState):
     return {
         "lint_errors": lint_errors,
         "history": state.get("history", []) + [
-            "Executed syntax and Flake8 checks on fetched files."
+            "Executed syntax and Flake8 checks."
         ],
     }
 
 
+# ============================================================
+# 5. PROPOSE REFACTOR NODE
+# ============================================================
+
 def propose_refactor_node(state: ReviewState):
-    """Generate improved code using the configured AI model."""
+    """Generate improved Python code using Groq."""
 
     if llm is None:
         raise RuntimeError(
-            "OPENAI_API_KEY is missing. Configure it before running AI refactoring."
+            "GROQ_API_KEY is missing. "
+            "Configure it before running AI refactoring."
         )
 
     files = state.get("files", [])
+
+    if not files:
+        raise ValueError("No Python files available for refactoring.")
+
     refactored_files = []
 
     for item in files:
-        prompt = f"""
-You are an expert Python code reviewer.
 
-Improve the following Python source code.
+        prompt = f"""
+You are an expert Python software engineer.
+
+Review and refactor the following Python source code.
 
 Requirements:
-1. Fix syntax errors and Flake8 issues.
-2. Follow Python best practices.
-3. Preserve the original program's functionality.
-4. Incorporate the reviewer's feedback.
-5. Do not invent missing functionality.
-6. Return ONLY the complete Python source code.
-7. Do not return Markdown code fences or explanations.
+
+1. Fix all syntax errors.
+2. Fix Flake8 style errors.
+3. Follow Python best practices.
+4. Preserve the original program's functionality.
+5. Incorporate the reviewer's feedback.
+6. Do not invent missing functionality.
+7. Return ONLY the complete Python source code.
+8. Do not include Markdown code fences.
+9. Do not include explanations.
+10. Ensure the file ends with a newline character.
 
 Filename:
 {item['filename']}
 
-Original code:
+Original source code:
 {item['content']}
 
 Lint findings:
@@ -131,11 +171,32 @@ Reviewer feedback:
 """
 
         response = llm.invoke(prompt)
+
+        if not isinstance(response.content, str):
+            raise ValueError(
+                "The AI model returned an unexpected response format."
+            )
+
         code = response.content.strip()
 
+        # Remove Markdown code fences if the model returns them.
         if code.startswith("```"):
-            code = code.split("\n", 1)[-1]
+
+            lines = code.split("\n", 1)
+
+            if len(lines) > 1:
+                code = lines[1]
+
             code = code.rsplit("```", 1)[0].strip()
+
+        # Check for empty response before adding newline.
+        if not code.strip():
+            raise ValueError(
+                f"AI returned empty code for {item['filename']}."
+            )
+
+        # FIX: Ensure the generated Python file ends with a newline.
+        code = code.rstrip() + "\n"
 
         refactored_files.append({
             "filename": item["filename"],
@@ -151,29 +212,35 @@ Reviewer feedback:
         "refactored_files": refactored_files,
         "refactored_code": combined_code,
         "history": state.get("history", []) + [
-            "Generated AI refactoring proposals."
+            "Generated AI refactoring proposals using Groq."
         ],
     }
 
 
+# ============================================================
+# 6. VALIDATE REFACTORED CODE NODE
+# ============================================================
+
 def validate_refactor_node(state: ReviewState):
-    """Re-run syntax and lint checks on AI-generated code."""
+    """Validate AI-generated code using the linter."""
 
     errors = []
 
     for item in state.get("refactored_files", []):
+
         result = run_linter_tool.invoke({
             "code_string": item["content"]
         })
 
         if result != "No lint errors found.":
+
             errors.append(
                 f"File: {item['filename']}\n{result}"
             )
 
     if errors:
         raise ValueError(
-            "Refactored code did not pass validation:\n"
+            "Refactored code failed validation:\n"
             + "\n\n".join(errors)
         )
 
@@ -184,10 +251,15 @@ def validate_refactor_node(state: ReviewState):
     }
 
 
+# ============================================================
+# 7. APPLY CHANGES NODE
+# ============================================================
+
 def apply_changes_node(state: ReviewState):
-    """Commit changes only after human approval."""
+    """Commit changes to GitHub only after human approval."""
 
     if not state.get("is_approved", False):
+
         return {
             "history": state.get("history", []) + [
                 "Changes rejected. Reviewer feedback will be processed."
@@ -197,7 +269,13 @@ def apply_changes_node(state: ReviewState):
     repo = state["repo_name"]
     branch = state["branch"]
 
-    for item in state.get("refactored_files", []):
+    refactored_files = state.get("refactored_files", [])
+
+    if not refactored_files:
+        raise ValueError("No refactored files available to commit.")
+
+    for item in refactored_files:
+
         success = commit_to_github(
             repo_full_name=repo,
             branch=branch,
@@ -220,8 +298,12 @@ def apply_changes_node(state: ReviewState):
     }
 
 
+# ============================================================
+# 8. CONDITIONAL ROUTING
+# ============================================================
+
 def decide_next_step(state: ReviewState):
-    """Choose the next step based on human approval."""
+    """Route rejected changes back to refactoring."""
 
     if state.get("is_approved", False):
         return "end"
@@ -229,32 +311,52 @@ def decide_next_step(state: ReviewState):
     return "refactor"
 
 
-# Persistent SQLite checkpoint storage.
+# ============================================================
+# 9. SQLITE PERSISTENT CHECKPOINTING
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+DATABASE_DIR = BASE_DIR / "data"
+DATABASE_DIR.mkdir(parents=True, exist_ok=True)
+
+DATABASE_PATH = DATABASE_DIR / "workflow_checkpoint.db"
 conn = sqlite3.connect(
-    "workflow_checkpoint.db",
+    str(DATABASE_PATH),
     check_same_thread=False,
 )
 
 memory = SqliteSaver(conn)
+
 memory.setup()
 
 
-# Construct the LangGraph workflow.
+# ============================================================
+# 10. BUILD LANGGRAPH WORKFLOW
+# ============================================================
+
 workflow = StateGraph(ReviewState)
 
+# Register nodes.
 workflow.add_node("fetch_pr_node", fetch_pr_node)
 workflow.add_node("lint_code_node", lint_code_node)
 workflow.add_node("propose_refactor_node", propose_refactor_node)
 workflow.add_node("validate_refactor_node", validate_refactor_node)
 workflow.add_node("apply_changes_node", apply_changes_node)
 
+# Define entry point.
 workflow.set_entry_point("fetch_pr_node")
 
+# Define normal workflow transitions.
 workflow.add_edge("fetch_pr_node", "lint_code_node")
+
 workflow.add_edge("lint_code_node", "propose_refactor_node")
+
 workflow.add_edge("propose_refactor_node", "validate_refactor_node")
+
 workflow.add_edge("validate_refactor_node", "apply_changes_node")
 
+# Define approval/rejection routing.
 workflow.add_conditional_edges(
     "apply_changes_node",
     decide_next_step,
@@ -264,6 +366,7 @@ workflow.add_conditional_edges(
     },
 )
 
+# Compile graph with persistent memory and human approval gate.
 app_graph = workflow.compile(
     checkpointer=memory,
     interrupt_before=["apply_changes_node"],
