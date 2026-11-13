@@ -1,3 +1,5 @@
+"""Utility functions for arithmetic operations."""
+
 from __future__ import annotations
 
 __all__ = ["add"]
